@@ -34,13 +34,15 @@ sub cleanup : Test(shutdown) {
 	qx{$command};
 };
 
-sub _test : Test(20) {
+sub _test : Test(25) {
 	my $self = shift;
 	return if $self->{skip};
 
 	ok(my $test = Test->new(dbh => $self->{dbh}), 'New Test');
 	isa_ok($test,'Test','Test class');
+	is($test->sequence_exists(sequence => 'a'), 0,'Sequence does NOT exist');
 	ok($test->create_sequence(sequence => 'a'),'Create a');
+	ok($test->sequence_exists(sequence => 'a'),'Sequence exists');
 	is($test->nextval(sequence => 'a'), 1,'Get first nextval for a');
 	is($test->lastval, 1,'Get first lastval');
 	is($test->setval(sequence => 'a', value => 1000), 1000,'Set sequence to 1000');
@@ -58,6 +60,18 @@ sub _test : Test(20) {
 
 	ok($test->create_sequence(sequence => 'c', minvalue => 'onezerozero', temporary => 1),'Create c with nonsense param');
 	is($test->nextval(sequence => 'c'), 1,'Get first nextval for c');
+
+	my $schema_name = 'sequencetest';
+	my $sql = qq{
+		CREATE SCHEMA $schema_name
+	};
+	$test->sequences_dbh->do($sql);
+	$test->sequences_schema($schema_name);
+	is($test->sequence_exists(sequence => 'a'), 0,'Sequence does NOT exist in new schema');
+	ok($test->create_sequence(sequence => 'a'),'Create a in new schema');
+	ok($test->sequence_exists(sequence => 'a'),'Sequence exists in new schema');
+	is($test->nextval(sequence => 'a'), 1,'Get first nextval for a in new schema');
+	is($test->lastval, 1,'Get lastval');
 };
 
 package main;

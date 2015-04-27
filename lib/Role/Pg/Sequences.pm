@@ -16,11 +16,21 @@ sub _build_sequences_dbh {
 	return $self->schema->storage->dbh if $self->can('schema');
 }
 
+has 'sequences_schema' => (
+	is => 'rw',
+	isa => 'Str',
+	predicate => '_has_sequences_schema',
+);
+
 sub create_sequence {
 	my ($self, %args) = @_;
 	my $dbh = $self->sequences_dbh;
 	my $sequence = $dbh->quote_identifier($args{sequence}) or return;
 	my $temp = $dbh->quote_identifier($args{temporary}) ? 'TEMP' : '';
+	if (!$temp and $self->_has_sequences_schema) {
+		my $schema = $dbh->quote_identifier($self->sequences_schema);
+		$sequence = "$schema.$sequence";
+	}
 	my @params = grep {exists $args{$_} and $args{$_} =~ /^\d+$/} qw/ increment minvalue maxvalue start cache /;
 	my $params = join ' ', map {"$_ $args{$_}"} @params;
 
@@ -34,6 +44,10 @@ sub drop_sequence {
 	my ($self, %args) = @_;
 	my $dbh = $self->sequences_dbh;
 	my $sequence = $dbh->quote_identifier($args{sequence}) or return;
+	if ($self->_has_sequences_schema) {
+		my $schema = $dbh->quote_identifier($self->sequences_schema);
+		$sequence = "$schema.$sequence";
+	}
 
 	my $sql = qq{
 		DROP SEQUENCE $sequence
@@ -41,10 +55,35 @@ sub drop_sequence {
 	$self->sequences_dbh->do($sql);
 }
 
+sub sequence_exists {
+	my ($self, %args) = @_;
+	my $dbh = $self->sequences_dbh;
+	my $schema = $self->sequences_schema;
+	my $sequence = $args{sequence} or return;
+	if ($self->_has_sequences_schema) {
+		my $schema = $self->sequences_schema;
+		$sequence = "$schema.$sequence";
+	}
+	my @values = ($sequence);
+
+	my $sql = qq{
+		SELECT * FROM pg_class
+			WHERE relkind = 'S'
+			AND oid::regclass::text = ?
+	};
+	my $sequence_value = $self->sequences_dbh->selectrow_arrayref($sql, undef, @values);
+	return $sequence_value->[0] ? 1 : 0;
+}
+
 sub nextval {
 	my ($self, %args) = @_;
 	my $dbh = $self->sequences_dbh;
+	my $schema = $self->sequences_schema;
 	my $sequence = $args{sequence} or return;
+	if ($self->_has_sequences_schema) {
+		my $schema = $self->sequences_schema;
+		$sequence = "$schema.$sequence";
+	}
 	my @values = ($sequence);
 
 	my $sql = qq{
@@ -57,7 +96,12 @@ sub nextval {
 sub setval {
 	my ($self, %args) = @_;
 	my $dbh = $self->sequences_dbh;
+	my $schema = $self->sequences_schema;
 	my $sequence = $args{sequence} or return;
+	if ($self->_has_sequences_schema) {
+		my $schema = $self->sequences_schema;
+		$sequence = "$schema.$sequence";
+	}
 	my $value = $args{value} || 1;
 	my @values = ($sequence, $value);
 	my $no_params = 2;
@@ -105,6 +149,10 @@ Role::Pg::Sequences tries to guess your dbh. If it isn't a standard dbi::db name
 constructed in a dbix::class schema called schema, you have to return the dbh from
 _build_sequences_dbh.
 
+=head2 sequences_schema
+
+Should be set to the name of the database schema to hold the sequence. Default "public".
+
 =head1 METHODS
 
 =head2 create_sequence
@@ -129,6 +177,12 @@ An optional password can be added. The user (or group) is then created with an e
  $self->drop_sequence(sequence => 'my_sequence');
 
 Drops a sequence.
+
+=head2 sequence_exists
+
+ print "It's there" if $self->sequence_exists(sequence => 'my_sequence');
+
+Returns true if the sequence exists.
 
 =head2 nextval
 
