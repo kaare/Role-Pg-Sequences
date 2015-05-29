@@ -203,7 +203,7 @@ Sets the value of the sequence
 
 =head2 lastval
 
- my $sequence_value = $self-lastval;
+ my $sequence_value = $self->lastval;
 
 Returns the latest value of any sequence
 
